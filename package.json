@@ -1,0 +1,17 @@
+{
+  "name": "deadlock-scrims",
+  "version": "1.0.0",
+  "description": "Bot para Discord que organiza scrims do cenário competitivo do Deadlock",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "deploy-commands": "node src/deploy-commands.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.1",
+    "node-cron": "^3.0.3"
+  }
+}
