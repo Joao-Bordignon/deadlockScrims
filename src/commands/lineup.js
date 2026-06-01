@@ -1,6 +1,7 @@
 const {
   SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags,
+  StringSelectMenuBuilder, PermissionFlagsBits,
 } = require('discord.js');
 const db = require('../database');
 
@@ -55,30 +56,57 @@ module.exports = {
   updateLineupPost,
 
   async execute(interaction) {
-    const captainRole = interaction.guild.roles.cache.find(r => r.name === 'Capitão');
-    if (!captainRole || !interaction.member.roles.cache.has(captainRole.id)) {
-      return interaction.reply({ content: 'Apenas o capitão pode gerenciar a lineup.', flags: MessageFlags.Ephemeral });
-    }
-
-    const teamRes = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [interaction.user.id]);
-    if (teamRes.rows.length === 0) {
-      return interaction.reply({ content: 'Você não tem um time cadastrado.', flags: MessageFlags.Ephemeral });
-    }
-    const team = teamRes.rows[0];
-
     const subcommand = interaction.options.getSubcommand();
+    const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+
     if (subcommand === 'atualizar') {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-      await updateLineupPost(interaction.guild, team);
-      return interaction.editReply({ content: 'Lineup atualizada.' });
+      // Capitão atualiza o próprio time direto
+      const captainTeam = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [interaction.user.id]);
+      if (captainTeam.rows.length > 0) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await updateLineupPost(interaction.guild, captainTeam.rows[0]);
+        return interaction.editReply({ content: 'Lineup atualizada.' });
+      }
+
+      // Admin escolhe o time
+      if (isAdmin) {
+        const teams = await db.query('SELECT id, name FROM teams ORDER BY name');
+        if (teams.rows.length === 0) {
+          return interaction.reply({ content: 'Nenhum time cadastrado.', flags: MessageFlags.Ephemeral });
+        }
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId('lineup:atualizar-select')
+          .setPlaceholder('Selecione o time para atualizar')
+          .addOptions(teams.rows.slice(0, 25).map(t => ({ label: t.name, value: String(t.id) })));
+        return interaction.reply({
+          content: 'Qual time deseja atualizar?',
+          components: [new ActionRowBuilder().addComponents(menu)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      return interaction.reply({ content: 'Apenas o capitão do time ou um administrador pode atualizar a lineup.', flags: MessageFlags.Ephemeral });
     }
   },
 
   async handleComponent(interaction) {
     const parts = interaction.customId.split(':');
     const action = parts[1];
-    const teamId = parseInt(parts[2]);
 
+    if (action === 'atualizar-select') {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: 'Apenas administradores.', flags: MessageFlags.Ephemeral });
+      }
+      const teamId = parseInt(interaction.values[0]);
+      const teamRes = await db.query('SELECT * FROM teams WHERE id = $1', [teamId]);
+      if (teamRes.rows.length === 0) {
+        return interaction.update({ content: 'Time não encontrado.', components: [] });
+      }
+      await updateLineupPost(interaction.guild, teamRes.rows[0]);
+      return interaction.update({ content: `Lineup de **${teamRes.rows[0].name}** atualizada.`, components: [] });
+    }
+
+    const teamId = parseInt(parts[2]);
     const teamRes = await db.query('SELECT * FROM teams WHERE id = $1', [teamId]);
     if (teamRes.rows.length === 0) {
       return interaction.reply({ content: 'Time não encontrado.', flags: MessageFlags.Ephemeral });
