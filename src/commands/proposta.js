@@ -9,6 +9,14 @@ const {
 } = require('../utils/time');
 
 const sessions = new Map();
+const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const THIRTY_MIN_MS = 30 * 60 * 1000;
+
+function getExpiresAt(scheduledAt) {
+  const timeUntil = scheduledAt.getTime() - Date.now();
+  if (timeUntil >= TWO_HOURS_MS) return new Date(scheduledAt.getTime() - TWO_HOURS_MS);
+  return new Date(scheduledAt.getTime() - THIRTY_MIN_MS);
+}
 
 async function getTeam(id) {
   const r = await db.query('SELECT * FROM teams WHERE id = $1', [id]);
@@ -52,9 +60,13 @@ async function startProposal(interaction, opponentTeamId) {
     return interaction.reply({ content: `${opponent.name} não tem horários disponíveis essa semana.`, flags: MessageFlags.Ephemeral });
   }
 
+  const now = new Date();
   const slotsByDay = {};
   for (const row of avail.rows) {
     if (isHourInPast(weekStart, row.day_of_week, row.hour)) continue;
+    const scheduledAt = getScheduledAt(weekStart, row.day_of_week, row.hour);
+    // Mínimo de 30min entre agora e o início da scrim (senão o expires_at já estaria no passado)
+    if (scheduledAt.getTime() - now.getTime() <= THIRTY_MIN_MS) continue;
     if (!slotsByDay[row.day_of_week]) slotsByDay[row.day_of_week] = [];
     slotsByDay[row.day_of_week].push(row.hour);
   }
@@ -134,7 +146,13 @@ async function handleHour(interaction, hour) {
 
   const day = session.selectedDay;
   const scheduledAt = getScheduledAt(session.weekStart, day, hour);
-  const expiresAt = new Date(scheduledAt.getTime() - 2 * 60 * 60 * 1000);
+  const expiresAt = getExpiresAt(scheduledAt);
+
+  // Mínimo de 30min até a scrim (impede expires_at no passado)
+  if (scheduledAt.getTime() - Date.now() <= THIRTY_MIN_MS) {
+    sessions.delete(interaction.user.id);
+    return interaction.update({ content: 'Esse horário está muito próximo (menos de 30min). Não dá mais para propor.', embeds: [], components: [] });
+  }
 
   // Verifica se o slot ainda está disponível
   const stillAvail = await db.query(
