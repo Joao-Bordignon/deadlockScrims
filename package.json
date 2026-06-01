@@ -4,8 +4,8 @@
   "description": "Bot para Discord que organiza scrims do cenário competitivo do Deadlock",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "start": "TZ=America/Sao_Paulo node src/index.js",
+    "dev": "TZ=America/Sao_Paulo node --watch src/index.js",
     "deploy-commands": "node src/deploy-commands.js"
   },
   "dependencies": {
