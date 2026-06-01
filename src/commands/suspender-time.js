@@ -4,6 +4,7 @@ const {
 } = require('discord.js');
 const db = require('../database');
 const disponibilidade = require('./disponibilidade');
+const { updateTimesChannel } = require('../utils/times');
 
 const INDEFINITE_DATE = new Date('9999-01-01T00:00:00Z');
 
@@ -128,6 +129,7 @@ module.exports = {
       weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
       weekStart.setHours(0, 0, 0, 0);
       disponibilidade.updateDisponibilidadeChannel(interaction.guild, weekStart).catch(() => {});
+      updateTimesChannel(interaction.guild).catch(err => console.error('Erro ao atualizar #times:', err));
     }
   },
 };

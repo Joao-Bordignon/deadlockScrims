@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType, MessageFlags } = require('discord.js');
 const db = require('../database');
+const { updateTimesChannel } = require('../utils/times');
 
 const PRIVATE_CHANNELS = [
   { name: 'comandos', type: ChannelType.GuildText },
@@ -190,5 +191,7 @@ module.exports = {
     await lineup.updateLineupPost(guild, teamRecord);
 
     await interaction.editReply({ content: `Time **${teamName}** cadastrado! Verifique o canal <#${channelIds['chat-do-time']}>.` });
+
+    updateTimesChannel(guild).catch(err => console.error('Erro ao atualizar #times:', err));
   },
 };

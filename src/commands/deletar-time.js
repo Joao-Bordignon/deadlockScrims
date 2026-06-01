@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const db = require('../database');
 const disponibilidade = require('./disponibilidade');
+const { updateTimesChannel } = require('../utils/times');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -102,6 +103,7 @@ module.exports = {
       weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
       weekStart.setHours(0, 0, 0, 0);
       disponibilidade.updateDisponibilidadeChannel(guild, weekStart).catch(() => {});
+      updateTimesChannel(guild).catch(err => console.error('Erro ao atualizar #times:', err));
     }
   },
 };

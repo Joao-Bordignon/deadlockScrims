@@ -3,6 +3,7 @@ const { EmbedBuilder } = require('discord.js');
 const db = require('../database');
 const disponibilidade = require('../commands/disponibilidade');
 const { getWeekStart, formatWeekRange } = require('../utils/time');
+const { updateTimesChannel } = require('../utils/times');
 
 async function refreshWeek(client) {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
@@ -31,6 +32,9 @@ async function refreshWeek(client) {
   // Atualiza #disponibilidade público
   await disponibilidade.updateDisponibilidadeChannel(guild, newWeekStart)
     .catch(err => console.error('Erro #disponibilidade:', err));
+
+  // Atualiza #times
+  await updateTimesChannel(guild).catch(err => console.error('Erro #times:', err));
 }
 
 function startWeeklyCron(client) {

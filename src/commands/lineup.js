@@ -4,6 +4,7 @@ const {
   StringSelectMenuBuilder, PermissionFlagsBits,
 } = require('discord.js');
 const db = require('../database');
+const { updateTimesChannel } = require('../utils/times');
 
 const MAX_NON_CAPTAIN_SLOTS = 5;
 
@@ -161,6 +162,7 @@ module.exports = {
       }
 
       await updateLineupPost(interaction.guild, team);
+      updateTimesChannel(interaction.guild).catch(err => console.error('Erro ao atualizar #times:', err));
       return interaction.editReply({ content: `Lineup atualizada com ${newNames.length} jogador${newNames.length === 1 ? '' : 'es'} (sem contar o capitão).` });
     }
   },
