@@ -1,5 +1,10 @@
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags,
+} = require('discord.js');
 const db = require('../database');
+
+const MAX_NON_CAPTAIN_SLOTS = 5;
 
 async function updateLineupPost(guild, team) {
   const channel = guild.channels.cache.get(team.channel_lineup_id) || await guild.channels.fetch(team.channel_lineup_id).catch(() => null);
@@ -22,27 +27,26 @@ async function updateLineupPost(guild, team) {
     .setColor(0x4fc3f7)
     .setTitle(`Lineup: ${team.name}`)
     .setDescription(
-      players.map(p => `${p.is_captain ? '⭐' : '🎮'} ${p.discord_username}${p.is_captain ? ' (Capitão)' : ''}`).join('\n') || 'Sem jogadores cadastrados.'
+      players.length > 0
+        ? players.map(p => `${p.is_captain ? '⭐' : '🎮'} ${p.discord_username}${p.is_captain ? ' (Capitão)' : ''}`).join('\n')
+        : 'Sem jogadores cadastrados.'
     )
-    .setFooter({ text: `${players.length} jogadores · Use /lineup add ou /lineup remove para editar` });
+    .setFooter({ text: `${players.length} jogador${players.length === 1 ? '' : 'es'}` });
 
-  await channel.send({ embeds: [embed] });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`lineup:editar:${team.id}`)
+      .setLabel('Editar lineup')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  await channel.send({ embeds: [embed], components: [row] });
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('lineup')
     .setDescription('Gerencia a lineup do seu time')
-    .addSubcommand(sub =>
-      sub.setName('add')
-        .setDescription('Adiciona um jogador à lineup')
-        .addStringOption(opt => opt.setName('jogador').setDescription('Nome do jogador').setRequired(true))
-    )
-    .addSubcommand(sub =>
-      sub.setName('remove')
-        .setDescription('Remove um jogador da lineup')
-        .addStringOption(opt => opt.setName('jogador').setDescription('Nome do jogador').setRequired(true))
-    )
     .addSubcommand(sub =>
       sub.setName('atualizar')
         .setDescription('Atualiza o post da lineup com os dados atuais do banco')
@@ -63,47 +67,73 @@ module.exports = {
     const team = teamRes.rows[0];
 
     const subcommand = interaction.options.getSubcommand();
-
     if (subcommand === 'atualizar') {
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       await updateLineupPost(interaction.guild, team);
       return interaction.editReply({ content: 'Lineup atualizada.' });
     }
+  },
 
-    const playerName = interaction.options.getString('jogador').trim();
+  async handleComponent(interaction) {
+    const parts = interaction.customId.split(':');
+    const action = parts[1];
+    const teamId = parseInt(parts[2]);
 
-    if (subcommand === 'add') {
-      const existing = await db.query(
-        'SELECT id FROM players WHERE team_id = $1 AND discord_username ILIKE $2',
-        [team.id, playerName]
-      );
-      if (existing.rows.length > 0) {
-        return interaction.reply({ content: `**${playerName}** já está na lineup.`, flags: MessageFlags.Ephemeral });
-      }
+    const teamRes = await db.query('SELECT * FROM teams WHERE id = $1', [teamId]);
+    if (teamRes.rows.length === 0) {
+      return interaction.reply({ content: 'Time não encontrado.', flags: MessageFlags.Ephemeral });
+    }
+    const team = teamRes.rows[0];
 
-      await db.query(
-        'INSERT INTO players (team_id, discord_username, is_captain) VALUES ($1, $2, false)',
-        [team.id, playerName]
-      );
-      await updateLineupPost(interaction.guild, team);
-      return interaction.reply({ content: `**${playerName}** adicionado à lineup.`, flags: MessageFlags.Ephemeral });
+    if (team.captain_discord_id !== interaction.user.id) {
+      return interaction.reply({ content: 'Apenas o capitão pode editar a lineup deste time.', flags: MessageFlags.Ephemeral });
     }
 
-    if (subcommand === 'remove') {
-      const player = await db.query(
-        'SELECT id, is_captain FROM players WHERE team_id = $1 AND discord_username ILIKE $2',
-        [team.id, playerName]
+    if (action === 'editar') {
+      const playersRes = await db.query(
+        'SELECT discord_username FROM players WHERE team_id = $1 AND is_captain = false ORDER BY id ASC',
+        [team.id]
       );
-      if (player.rows.length === 0) {
-        return interaction.reply({ content: `**${playerName}** não está na lineup.`, flags: MessageFlags.Ephemeral });
-      }
-      if (player.rows[0].is_captain) {
-        return interaction.reply({ content: 'O capitão não pode ser removido da lineup.', flags: MessageFlags.Ephemeral });
+      const currentNames = playersRes.rows.map(p => p.discord_username);
+
+      const modal = new ModalBuilder()
+        .setCustomId(`lineup:submit:${team.id}`)
+        .setTitle(`Editar lineup: ${team.name}`);
+
+      for (let i = 0; i < MAX_NON_CAPTAIN_SLOTS; i++) {
+        const input = new TextInputBuilder()
+          .setCustomId(`jogador${i + 1}`)
+          .setLabel(`Jogador ${i + 1}`)
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false)
+          .setMaxLength(50);
+        if (currentNames[i]) input.setValue(currentNames[i]);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
       }
 
-      await db.query('DELETE FROM players WHERE id = $1', [player.rows[0].id]);
+      return interaction.showModal(modal);
+    }
+
+    if (action === 'submit') {
+      const newNames = [];
+      for (let i = 0; i < MAX_NON_CAPTAIN_SLOTS; i++) {
+        const value = interaction.fields.getTextInputValue(`jogador${i + 1}`).trim();
+        if (value) newNames.push(value);
+      }
+
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      await db.query('DELETE FROM players WHERE team_id = $1 AND is_captain = false', [team.id]);
+      if (newNames.length > 0) {
+        const placeholders = newNames.map((_, i) => `($1, $${i + 2}, false)`).join(', ');
+        await db.query(
+          `INSERT INTO players (team_id, discord_username, is_captain) VALUES ${placeholders}`,
+          [team.id, ...newNames]
+        );
+      }
+
       await updateLineupPost(interaction.guild, team);
-      return interaction.reply({ content: `**${playerName}** removido da lineup.`, flags: MessageFlags.Ephemeral });
+      return interaction.editReply({ content: `Lineup atualizada com ${newNames.length} jogador${newNames.length === 1 ? '' : 'es'} (sem contar o capitão).` });
     }
   },
 };

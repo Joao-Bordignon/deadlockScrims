@@ -153,6 +153,10 @@ module.exports = {
             name: 'Botões Aceitar / Recusar',
             value: 'Aparecem em <#' + channelIds['propostas'] + '> quando outro time envia uma proposta de scrim.',
           },
+          {
+            name: 'Botão "Editar lineup"',
+            value: 'Aparece no <#' + channelIds['lineup'] + '>. Abre um formulário com os 5 slots de jogadores (sem contar o capitão) para você adicionar, remover ou trocar.',
+          },
         )
         .setFooter({ text: 'Apenas o capitão pode usar os comandos do time' });
 
@@ -180,18 +184,10 @@ module.exports = {
       await comandosChannel.send({ embeds: [guideEmbed, channelsEmbed, regrasEmbed] });
     }
 
-    // Lineup no #lineup
-    const lineupChannel = guild.channels.cache.get(channelIds['lineup']);
-    if (lineupChannel) {
-      const lineupEmbed = new EmbedBuilder()
-        .setColor(0x4fc3f7)
-        .setTitle(`Lineup: ${teamName}`)
-        .setDescription(
-          playerNames.map((name, i) => `${i === 0 ? '⭐' : '🎮'} ${name}${i === 0 ? ' (Capitão)' : ''}`).join('\n')
-        )
-        .setFooter({ text: `${playerNames.length} jogadores · Use /lineup add ou /lineup remove para editar` });
-      await lineupChannel.send({ embeds: [lineupEmbed] });
-    }
+    // Lineup no #lineup (usa o helper para incluir o botão "Editar lineup")
+    const lineup = require('./lineup');
+    const teamRecord = { id: teamId, name: teamName, channel_lineup_id: channelIds['lineup'] };
+    await lineup.updateLineupPost(guild, teamRecord);
 
     await interaction.editReply({ content: `Time **${teamName}** cadastrado! Verifique o canal <#${channelIds['chat-do-time']}>.` });
   },
