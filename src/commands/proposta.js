@@ -176,7 +176,6 @@ async function handleHour(interaction, hour) {
   const propostasChannel = interaction.guild.channels.cache.get(session.opponentTeam.channel_propostas_id);
   let proposalMessage = null;
   if (propostasChannel) {
-    const opponentRole = interaction.guild.roles.cache.get(session.opponentTeam.role_id);
     const expiresLabel = `${formatDate(expiresAt)} às ${HOUR_TIME(expiresAt.getHours())}`;
 
     const proposalEmbed = new EmbedBuilder()
@@ -188,16 +187,16 @@ async function handleHour(interaction, hour) {
         { name: 'Data', value: `${DAY_NAME[day]} · ${formatDate(scheduledAt)}`, inline: false },
         { name: 'Horário', value: HOUR_TIME(hour), inline: false },
       )
-      .setFooter({ text: `Proposta expira em: ${expiresLabel} (2h antes da scrim)` });
+      .setFooter({ text: `Proposta expira em: ${expiresLabel}` });
 
     const buttonRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`proposta:aceitar:${scrimId}`).setLabel('Aceitar').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`proposta:recusar:${scrimId}`).setLabel('Recusar').setStyle(ButtonStyle.Danger),
     );
 
-    const mention = opponentRole ? `<@&${opponentRole.id}>` : '';
+    const captainMention = `<@${session.opponentTeam.captain_discord_id}>`;
     proposalMessage = await propostasChannel.send({
-      content: `${mention} você recebeu uma proposta de scrim!`,
+      content: `${captainMention} você recebeu uma proposta de scrim!`,
       embeds: [proposalEmbed],
       components: [buttonRow],
     });

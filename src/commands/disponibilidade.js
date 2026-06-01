@@ -42,21 +42,22 @@ function sortHours(hours) {
   return [...hours].sort((a, b) => (a === 0 ? 24 : a) - (b === 0 ? 24 : b));
 }
 
-function dayButton(d, selectedDays, weekStart) {
+function dayButton(d, selectedDays, weekStart, lockedHours) {
   const past = isDayInPast(weekStart, d.value);
+  const hasLock = (lockedHours?.[d.value] || []).length > 0;
   return new ButtonBuilder()
     .setCustomId(`disponibilidade:day:${d.value}`)
     .setLabel(selectedDays.includes(d.value) ? `${d.label} ✓` : d.label)
     .setStyle(selectedDays.includes(d.value) ? ButtonStyle.Success : ButtonStyle.Secondary)
-    .setDisabled(past);
+    .setDisabled(past || hasLock);
 }
 
-function buildDayRows(selectedDays, hasExisting, weekStart) {
+function buildDayRows(selectedDays, hasExisting, weekStart, lockedHours = {}) {
   const row1 = new ActionRowBuilder().addComponents(
-    DAYS.slice(0, 5).map(d => dayButton(d, selectedDays, weekStart))
+    DAYS.slice(0, 5).map(d => dayButton(d, selectedDays, weekStart, lockedHours))
   );
   const row2 = new ActionRowBuilder().addComponents([
-    ...DAYS.slice(5).map(d => dayButton(d, selectedDays, weekStart)),
+    ...DAYS.slice(5).map(d => dayButton(d, selectedDays, weekStart, lockedHours)),
     new ButtonBuilder()
       .setCustomId('disponibilidade:days_next')
       .setLabel('Próximo →')
@@ -75,21 +76,25 @@ function buildDayRows(selectedDays, hasExisting, weekStart) {
   return rows;
 }
 
-function hourButton(h, selectedHours, weekStart, day) {
+function hourButton(h, selectedHours, weekStart, day, lockedForDay = []) {
   const past = isHourInPast(weekStart, day, h);
+  const locked = lockedForDay.includes(h);
+  let label = HOUR_LABEL(h);
+  if (locked) label = `${HOUR_LABEL(h)} ⚔️`;
+  else if (selectedHours.includes(h)) label = `${HOUR_LABEL(h)} ✓`;
   return new ButtonBuilder()
     .setCustomId(`disponibilidade:hour:${h}`)
-    .setLabel(selectedHours.includes(h) ? `${HOUR_LABEL(h)} ✓` : HOUR_LABEL(h))
-    .setStyle(selectedHours.includes(h) ? ButtonStyle.Success : ButtonStyle.Secondary)
-    .setDisabled(past);
+    .setLabel(label)
+    .setStyle(selectedHours.includes(h) || locked ? ButtonStyle.Success : ButtonStyle.Secondary)
+    .setDisabled(past || locked);
 }
 
-function buildHourRows(selectedHours, isLast, weekStart, day) {
+function buildHourRows(selectedHours, isLast, weekStart, day, lockedForDay = []) {
   const row1 = new ActionRowBuilder().addComponents(
-    HOURS.slice(0, 5).map(h => hourButton(h, selectedHours, weekStart, day))
+    HOURS.slice(0, 5).map(h => hourButton(h, selectedHours, weekStart, day, lockedForDay))
   );
   const row2 = new ActionRowBuilder().addComponents([
-    ...HOURS.slice(5).map(h => hourButton(h, selectedHours, weekStart, day)),
+    ...HOURS.slice(5).map(h => hourButton(h, selectedHours, weekStart, day, lockedForDay)),
     new ButtonBuilder()
       .setCustomId('disponibilidade:hours_next')
       .setLabel(isLast ? 'Confirmar ✓' : 'Próximo →')
@@ -101,18 +106,24 @@ function buildHourRows(selectedHours, isLast, weekStart, day) {
 
 async function loadExistingAvailability(teamId, weekStart) {
   const result = await db.query(
-    'SELECT day_of_week, hour FROM availabilities WHERE team_id = $1 AND week_start = $2',
+    'SELECT day_of_week, hour, is_blocked FROM availabilities WHERE team_id = $1 AND week_start = $2',
     [teamId, weekStart]
   );
   const dayHours = {};
+  const lockedHours = {};
   for (const row of result.rows) {
     if (isHourInPast(weekStart, row.day_of_week, row.hour)) continue;
     if (!dayHours[row.day_of_week]) dayHours[row.day_of_week] = [];
     dayHours[row.day_of_week].push(row.hour);
+    if (row.is_blocked) {
+      if (!lockedHours[row.day_of_week]) lockedHours[row.day_of_week] = [];
+      lockedHours[row.day_of_week].push(row.hour);
+    }
   }
   for (const day of Object.keys(dayHours)) dayHours[day] = sortHours(dayHours[day]);
+  for (const day of Object.keys(lockedHours)) lockedHours[day] = sortHours(lockedHours[day]);
   const selectedDays = sortDays(Object.keys(dayHours).map(Number));
-  return { selectedDays, dayHours };
+  return { selectedDays, dayHours, lockedHours };
 }
 
 async function postAvailabilityToAgenda(guild, team, weekStart) {
@@ -246,6 +257,7 @@ async function startFlow(interaction, team, isEdit) {
     weekStart,
     selectedDays: existing.selectedDays,
     dayHours: existing.dayHours,
+    lockedHours: existing.lockedHours,
     currentDayIndex: 0,
     step: 'days',
     hasExisting: existing.selectedDays.length > 0,
@@ -262,7 +274,7 @@ async function startFlow(interaction, team, isEdit) {
 
   await interaction.reply({
     embeds: [embed],
-    components: buildDayRows(existing.selectedDays, existing.selectedDays.length > 0, weekStart),
+    components: buildDayRows(existing.selectedDays, existing.selectedDays.length > 0, weekStart, existing.lockedHours),
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -332,12 +344,12 @@ module.exports = {
         .setDescription(`Semana ${formatWeekRange(session.weekStart)}${selected ? `\nSelecionados: ${selected}` : ''}`)
         .setFooter({ text: 'Clique nos dias para selecionar. Clique novamente para desmarcar.' });
 
-      return interaction.update({ embeds: [embed], components: buildDayRows(session.selectedDays, session.hasExisting, session.weekStart) });
+      return interaction.update({ embeds: [embed], components: buildDayRows(session.selectedDays, session.hasExisting, session.weekStart, session.lockedHours) });
     }
 
     if (action === 'clear') {
       const weekStart = session.weekStart;
-      await db.query('DELETE FROM availabilities WHERE team_id = $1 AND week_start = $2', [session.teamId, weekStart]);
+      await db.query('DELETE FROM availabilities WHERE team_id = $1 AND week_start = $2 AND is_blocked = false', [session.teamId, weekStart]);
 
       const clearedEmbed = new EmbedBuilder()
         .setColor(0xe05a5a)
@@ -370,7 +382,7 @@ module.exports = {
         .setDescription(preLoaded.length > 0 ? `Selecionados: ${preLoaded.map(HOUR_LABEL).join(' · ')}` : 'Clique nos horários para selecionar.')
         .setFooter({ text: 'Clique novamente para desmarcar.' });
 
-      return interaction.update({ embeds: [embed], components: buildHourRows(preLoaded, isLast, session.weekStart, currentDay) });
+      return interaction.update({ embeds: [embed], components: buildHourRows(preLoaded, isLast, session.weekStart, currentDay, session.lockedHours?.[currentDay] || []) });
     }
 
     if (action === 'hour') {
@@ -393,7 +405,7 @@ module.exports = {
         .setDescription(selected.length > 0 ? `Selecionados: ${selected.map(HOUR_LABEL).join(' · ')}` : 'Clique nos horários para selecionar.')
         .setFooter({ text: 'Clique novamente para desmarcar.' });
 
-      return interaction.update({ embeds: [embed], components: buildHourRows(selected, isLast, session.weekStart, currentDay) });
+      return interaction.update({ embeds: [embed], components: buildHourRows(selected, isLast, session.weekStart, currentDay, session.lockedHours?.[currentDay] || []) });
     }
 
     if (action === 'hours_next') {
@@ -402,15 +414,17 @@ module.exports = {
       if (isLast) {
         const weekStart = session.weekStart;
 
-        // Bulk delete + insert em uma única query cada
-        await db.query('DELETE FROM availabilities WHERE team_id = $1 AND week_start = $2', [session.teamId, weekStart]);
+        // Apaga só os não-bloqueados (preserva horários com scrim confirmada)
+        await db.query('DELETE FROM availabilities WHERE team_id = $1 AND week_start = $2 AND is_blocked = false', [session.teamId, weekStart]);
 
         const values = [];
         const params = [];
         let paramIdx = 1;
         for (const day of session.selectedDays) {
           const hours = session.dayHours[day] || [];
+          const lockedForDay = session.lockedHours?.[day] || [];
           for (const hour of hours) {
+            if (lockedForDay.includes(hour)) continue; // já no banco
             values.push(`($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`);
             params.push(session.teamId, weekStart, day, hour);
           }
@@ -453,7 +467,7 @@ module.exports = {
           .setDescription(preLoaded.length > 0 ? `Selecionados: ${preLoaded.map(HOUR_LABEL).join(' · ')}` : 'Clique nos horários para selecionar.')
           .setFooter({ text: 'Clique novamente para desmarcar.' });
 
-        return interaction.update({ embeds: [embed], components: buildHourRows(preLoaded, nextIsLast, session.weekStart, nextDay) });
+        return interaction.update({ embeds: [embed], components: buildHourRows(preLoaded, nextIsLast, session.weekStart, nextDay, session.lockedHours?.[nextDay] || []) });
       }
     }
   },
