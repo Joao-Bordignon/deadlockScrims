@@ -130,7 +130,7 @@ async function postAvailabilityToAgenda(guild, team, weekStart) {
   const agendaChannel = guild.channels.cache.get(team.channel_agenda_id);
   if (!agendaChannel) return;
 
-  const { selectedDays, dayHours } = await loadExistingAvailability(team.id, weekStart);
+  const { selectedDays, dayHours, lockedHours } = await loadExistingAvailability(team.id, weekStart);
 
   // Remove o post anterior de disponibilidade (se existir)
   const msgs = await agendaChannel.messages.fetch({ limit: 20 }).catch(() => null);
@@ -142,7 +142,11 @@ async function postAvailabilityToAgenda(guild, team, weekStart) {
 
   const lines = selectedDays.length === 0
     ? ['Nenhum horário cadastrado.']
-    : selectedDays.map(d => `${DAY_NAME[d]}: ${dayHours[d].map(HOUR_LABEL).join(' · ')}`);
+    : selectedDays.map(d => {
+        const locked = lockedHours?.[d] || [];
+        const hourStrs = dayHours[d].map(h => locked.includes(h) ? `~~${HOUR_LABEL(h)}~~` : HOUR_LABEL(h));
+        return `${DAY_NAME[d]}: ${hourStrs.join(' · ')}`;
+      });
 
   const embed = new EmbedBuilder()
     .setColor(0x4caf82)
