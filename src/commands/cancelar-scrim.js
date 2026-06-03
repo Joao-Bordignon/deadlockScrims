@@ -4,10 +4,43 @@ const disponibilidade = require('./disponibilidade');
 const { updateAgendaChannel } = require('../utils/agenda');
 const { HOUR_TIME, DAY_NAME, formatDate } = require('../utils/time');
 
+const HOUR_MS = 60 * 60 * 1000;
+const TIER_72H = 72 * HOUR_MS;
+const TIER_24H = 24 * HOUR_MS;
+const TIER_6H = 6 * HOUR_MS;
+const THIRTY_MIN = 30 * 60 * 1000;
+
+// Regra escalonada de cancelamento
+function getCancellationDeadline(scrim) {
+  const confirmedAt = new Date(scrim.confirmed_at || scrim.created_at);
+  const scheduledAt = new Date(scrim.scheduled_at);
+  const leadTimeMs = scheduledAt.getTime() - confirmedAt.getTime();
+
+  let deadlineBefore;
+  if (leadTimeMs >= TIER_72H) {
+    deadlineBefore = 48 * HOUR_MS;
+  } else if (leadTimeMs >= TIER_24H) {
+    deadlineBefore = 12 * HOUR_MS;
+  } else if (leadTimeMs >= TIER_6H) {
+    deadlineBefore = 5 * HOUR_MS;
+  } else {
+    deadlineBefore = Math.max(leadTimeMs / 2, THIRTY_MIN);
+  }
+
+  return new Date(scheduledAt.getTime() - deadlineBefore);
+}
+
+function formatLeadTime(ms) {
+  const hours = Math.floor(ms / HOUR_MS);
+  if (hours >= 24) return `${Math.floor(hours / 24)} dia${Math.floor(hours / 24) === 1 ? '' : 's'}`;
+  if (hours >= 1) return `${hours}h`;
+  return `${Math.floor(ms / (60 * 1000))}min`;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('cancelar-scrim')
-    .setDescription('Cancela uma scrim confirmada (mínimo 2h antes do horário)'),
+    .setDescription('Cancela uma scrim confirmada (prazo varia conforme antecedência)'),
 
   async execute(interaction) {
     const teamResult = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [interaction.user.id]);
@@ -16,27 +49,28 @@ module.exports = {
     }
     const team = teamResult.rows[0];
 
-    const now = new Date();
-    const cutoff = new Date(now.getTime() + 2 * 60 * 60 * 1000);
-
     const scrims = await db.query(
-      `SELECT s.id, s.scheduled_at, s.day_of_week, s.hour, s.team_home_id, s.team_away_id,
+      `SELECT s.id, s.scheduled_at, s.confirmed_at, s.created_at, s.day_of_week, s.hour,
+              s.team_home_id, s.team_away_id,
               h.name AS home_name, a.name AS away_name
        FROM scrims s
        JOIN teams h ON h.id = s.team_home_id
        JOIN teams a ON a.id = s.team_away_id
        WHERE s.status = 'confirmed'
-         AND s.scheduled_at > $1
-         AND (s.team_home_id = $2 OR s.team_away_id = $2)
+         AND s.scheduled_at > NOW()
+         AND (s.team_home_id = $1 OR s.team_away_id = $1)
        ORDER BY s.scheduled_at`,
-      [cutoff, team.id]
+      [team.id]
     );
 
-    if (scrims.rows.length === 0) {
-      return interaction.reply({ content: 'Nenhuma scrim disponível para cancelar (mínimo 2h de antecedência).', flags: MessageFlags.Ephemeral });
+    const now = new Date();
+    const cancelable = scrims.rows.filter(s => getCancellationDeadline(s) > now);
+
+    if (cancelable.length === 0) {
+      return interaction.reply({ content: 'Nenhuma scrim disponível pra cancelar (prazo de cancelamento já passou em todas as suas scrims futuras).', flags: MessageFlags.Ephemeral });
     }
 
-    const options = scrims.rows.slice(0, 25).map(s => {
+    const options = cancelable.slice(0, 25).map(s => {
       const opponent = s.team_home_id === team.id ? s.away_name : s.home_name;
       return {
         label: `${opponent} · ${DAY_NAME[s.day_of_week]} ${formatDate(new Date(s.scheduled_at))} ${HOUR_TIME(s.hour)}`,
@@ -67,9 +101,14 @@ module.exports = {
     const scrim = sR.rows[0];
 
     const now = new Date();
-    const cutoff = new Date(scrim.scheduled_at).getTime() - 2 * 60 * 60 * 1000;
-    if (now.getTime() > cutoff) {
-      return interaction.update({ content: 'Esta scrim não pode mais ser cancelada (faltam menos de 2h).', components: [] });
+    const deadline = getCancellationDeadline(scrim);
+    if (now > deadline) {
+      const confirmedAt = new Date(scrim.confirmed_at || scrim.created_at);
+      const leadMs = new Date(scrim.scheduled_at).getTime() - confirmedAt.getTime();
+      return interaction.update({
+        content: `Essa scrim não pode mais ser cancelada. Foi marcada com ${formatLeadTime(leadMs)} de antecedência e o prazo de cancelamento já passou.`,
+        components: [],
+      });
     }
 
     const teams = await db.query('SELECT * FROM teams WHERE id IN ($1, $2)', [scrim.team_home_id, scrim.team_away_id]);
@@ -116,10 +155,10 @@ async function notifyCancellation(guild, homeTeam, awayTeam, scrim, cancelledBy)
       .setColor(0xe05a5a)
       .setTitle('Scrim cancelada')
       .addFields(
-        { name: 'Adversário', value: opponent },
+        { name: 'Adversário', value: opponent, inline: true },
+        { name: 'Cancelada por', value: cancelledBy, inline: true },
         { name: 'Data e hora', value: `${DAY_NAME[scrim.day_of_week]} ${formatDate(new Date(scrim.scheduled_at))} · ${HOUR_TIME(scrim.hour)}` },
-      )
-      .setFooter({ text: `Cancelada por ${cancelledBy}` });
-    await propostas.send({ embeds: [embed] }).catch(() => {});
+      );
+    await propostas.send({ content: `<@${team.captain_discord_id}>`, embeds: [embed] }).catch(() => {});
   }
 }

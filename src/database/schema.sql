@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS scrims (
   proposal_message_id VARCHAR(50),
   proposal_channel_id VARCHAR(50),
   reminder_sent BOOLEAN DEFAULT FALSE,
+  confirmed_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

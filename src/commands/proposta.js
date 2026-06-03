@@ -242,7 +242,7 @@ async function handleResposta(interaction, scrimId, aceitar) {
   }
 
   if (aceitar) {
-    await db.query("UPDATE scrims SET status = 'confirmed' WHERE id = $1", [scrimId]);
+    await db.query("UPDATE scrims SET status = 'confirmed', confirmed_at = NOW() WHERE id = $1", [scrimId]);
     // Bloqueia o horário nos dois times
     await db.query(
       `UPDATE availabilities SET is_blocked = true
