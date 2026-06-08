@@ -176,10 +176,25 @@ module.exports = {
         .setColor(0xe05a5a)
         .setTitle('Regras importantes')
         .setDescription(
+          '**Comandos**\n' +
           '• Apenas o capitão pode usar os comandos do time.\n' +
-          '• Propostas de scrim expiram automaticamente 2h antes do horário marcado.\n' +
-          '• Cancelamentos só podem ser feitos com no mínimo 2h de antecedência.\n' +
-          '• O bot envia um lembrete 3h antes de cada scrim no chat do time.'
+          '• A disponibilidade pode ser cadastrada para até 3 semanas (atual, próxima e seguinte).\n' +
+          '• Cada semana é independente. Toda segunda, rode `/disponibilidade` para cadastrar a nova semana que entrou.\n\n' +
+          '**Propostas**\n' +
+          '• Propostas de scrim expiram automaticamente 2h antes do horário marcado (ou 30min antes, se a proposta foi feita com pouca antecedência).\n' +
+          '• Cada proposta envolve apenas os dois times. Não há interferência externa.\n\n' +
+          '**Cancelamentos**\n' +
+          'O prazo de cancelamento varia conforme a antecedência do agendamento:\n' +
+          '• Marcada com 72h+ de antecedência → cancela até 48h antes\n' +
+          '• Marcada com 24h a 72h de antecedência → cancela até 12h antes\n' +
+          '• Marcada com 6h a 24h de antecedência → cancela até 5h antes\n' +
+          '• Marcada com menos de 6h → cancela até metade do tempo restante (mínimo 30min)\n\n' +
+          '**Lembretes**\n' +
+          '• O bot envia um lembrete 3h antes de cada scrim no chat do time.\n' +
+          '• Os canais públicos são atualizados todo dia às 8h da manhã automaticamente.\n\n' +
+          '**Convivência**\n' +
+          '• Mantenha o respeito com adversários nos canais públicos e propostas.\n' +
+          '• Cancelamentos repetidos ou no-shows podem resultar em suspensão do time.'
         );
 
       await comandosChannel.send({ embeds: [guideEmbed, channelsEmbed, regrasEmbed] });
