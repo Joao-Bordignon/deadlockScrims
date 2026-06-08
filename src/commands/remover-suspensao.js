@@ -69,11 +69,7 @@ module.exports = {
       }).catch(() => {});
     }
 
-    const weekStart = new Date();
-    const day = weekStart.getDay();
-    weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
-    weekStart.setHours(0, 0, 0, 0);
-    disponibilidade.updateDisponibilidadeChannel(interaction.guild, weekStart).catch(() => {});
+    disponibilidade.updateAllDisponibilidadeChannel(interaction.guild).catch(() => {});
     updateTimesChannel(interaction.guild).catch(err => console.error('Erro ao atualizar #times:', err));
   },
 };

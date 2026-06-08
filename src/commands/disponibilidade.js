@@ -1,6 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const db = require('../database');
-const { isDayInPast, isHourInPast } = require('../utils/time');
+const {
+  isDayInPast, isHourInPast,
+  getWeekStartOffset, getActiveWeekStarts, weekLabel,
+  formatWeekRange,
+} = require('../utils/time');
 
 const sessions = new Map();
 
@@ -17,22 +21,6 @@ const DAYS = [
 const HOURS = [18, 19, 20, 21, 22, 23, 0];
 const HOUR_LABEL = h => h === 0 ? '00h' : `${h}h`;
 const DAY_NAME = { 0: 'Domingo', 1: 'Segunda-feira', 2: 'Terça-feira', 3: 'Quarta-feira', 4: 'Quinta-feira', 5: 'Sexta-feira', 6: 'Sábado' };
-
-function getWeekStart() {
-  const now = new Date();
-  const day = now.getDay();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-}
-
-function formatWeekRange(weekStart) {
-  const end = new Date(weekStart);
-  end.setDate(end.getDate() + 6);
-  const fmt = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
-  return `${fmt(weekStart)} a ${fmt(end)}`;
-}
 
 function sortDays(days) {
   return [...days].sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b));
@@ -104,6 +92,17 @@ function buildHourRows(selectedHours, isLast, weekStart, day, lockedForDay = [])
   return [row1, row2];
 }
 
+function buildWeekRows() {
+  const buttons = [0, 1, 2].map(offset => {
+    const ws = getWeekStartOffset(offset);
+    return new ButtonBuilder()
+      .setCustomId(`disponibilidade:week:${offset}`)
+      .setLabel(`${weekLabel(offset)} (${formatWeekRange(ws)})`)
+      .setStyle(ButtonStyle.Primary);
+  });
+  return [new ActionRowBuilder().addComponents(buttons)];
+}
+
 async function loadExistingAvailability(teamId, weekStart) {
   const result = await db.query(
     'SELECT day_of_week, hour, is_blocked FROM availabilities WHERE team_id = $1 AND week_start = $2',
@@ -126,20 +125,8 @@ async function loadExistingAvailability(teamId, weekStart) {
   return { selectedDays, dayHours, lockedHours };
 }
 
-async function postAvailabilityToAgenda(guild, team, weekStart) {
-  const agendaChannel = guild.channels.cache.get(team.channel_agenda_id);
-  if (!agendaChannel) return;
-
-  const { selectedDays, dayHours, lockedHours } = await loadExistingAvailability(team.id, weekStart);
-
-  // Remove o post anterior de disponibilidade (se existir)
-  const msgs = await agendaChannel.messages.fetch({ limit: 20 }).catch(() => null);
-  if (msgs) {
-    for (const msg of msgs.filter(m => m.author.bot && m.embeds[0]?.title?.startsWith('Disponibilidade')).values()) {
-      await msg.delete().catch(() => {});
-    }
-  }
-
+function buildAvailabilityEmbedForWeek(team, weekStart, weeksAhead, data) {
+  const { selectedDays, dayHours, lockedHours } = data;
   const lines = selectedDays.length === 0
     ? ['Nenhum horário cadastrado.']
     : selectedDays.map(d => {
@@ -148,26 +135,41 @@ async function postAvailabilityToAgenda(guild, team, weekStart) {
         return `${DAY_NAME[d]}: ${hourStrs.join(' · ')}`;
       });
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(0x4caf82)
-    .setTitle(`Disponibilidade: ${team.name}`)
+    .setTitle(`Disponibilidade: ${team.name} (${weekLabel(weeksAhead)})`)
     .setDescription(lines.join('\n'))
     .setFooter({ text: `Semana ${formatWeekRange(weekStart)}` });
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`disponibilidade:editar:${team.id}`)
-      .setLabel('Editar disponibilidade')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  await agendaChannel.send({ embeds: [embed], components: [row] });
 }
 
-async function updateDisponibilidadeChannel(guild, weekStart) {
-  const dispChannel = guild.channels.cache.find(c => c.name.startsWith('disponibilidade'));
-  if (!dispChannel) return;
+async function postAllAvailabilityToAgenda(guild, team) {
+  const agendaChannel = guild.channels.cache.get(team.channel_agenda_id);
+  if (!agendaChannel) return;
 
+  // Remove todos os posts antigos de disponibilidade
+  const msgs = await agendaChannel.messages.fetch({ limit: 30 }).catch(() => null);
+  if (msgs) {
+    for (const msg of msgs.filter(m => m.author.bot && m.embeds[0]?.title?.startsWith('Disponibilidade:')).values()) {
+      await msg.delete().catch(() => {});
+    }
+  }
+
+  // Posta as 3 semanas em ordem
+  for (let offset = 0; offset < 3; offset++) {
+    const ws = getWeekStartOffset(offset);
+    const data = await loadExistingAvailability(team.id, ws);
+    const embed = buildAvailabilityEmbedForWeek(team, ws, offset, data);
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`disponibilidade:editar:${team.id}:${offset}`)
+        .setLabel('Editar disponibilidade')
+        .setStyle(ButtonStyle.Primary)
+    );
+    await agendaChannel.send({ embeds: [embed], components: [row] });
+  }
+}
+
+async function buildDisponibilidadeWeekEmbed(guild, weekStart, weeksAhead) {
   const result = await db.query(`
     SELECT t.id, t.name, a.day_of_week, a.hour, a.is_blocked
     FROM teams t
@@ -176,24 +178,6 @@ async function updateDisponibilidadeChannel(guild, weekStart) {
       AND (t.suspended_until IS NULL OR t.suspended_until < NOW())
     ORDER BY t.name, a.day_of_week, a.hour
   `, [weekStart]);
-
-  const msgs = await dispChannel.messages.fetch({ limit: 20 });
-  for (const msg of msgs.filter(m => m.author.bot).values()) {
-    await msg.delete().catch(() => {});
-  }
-
-  if (result.rows.length === 0) {
-    await dispChannel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0x4fc3f7)
-          .setTitle('Times disponíveis esta semana')
-          .setDescription('Nenhum time cadastrou disponibilidade ainda.')
-          .setFooter({ text: formatWeekRange(weekStart) }),
-      ],
-    });
-    return;
-  }
 
   const teamsMap = {};
   for (const row of result.rows) {
@@ -204,24 +188,15 @@ async function updateDisponibilidadeChannel(guild, weekStart) {
   }
 
   const teamEntries = Object.entries(teamsMap);
-
-  if (teamEntries.length === 0) {
-    await dispChannel.send({
-      embeds: [
-        new EmbedBuilder()
-          .setColor(0x4fc3f7)
-          .setTitle('Times disponíveis esta semana')
-          .setDescription('Nenhum time tem horários futuros essa semana.')
-          .setFooter({ text: formatWeekRange(weekStart) }),
-      ],
-    });
-    return;
-  }
-
   const embed = new EmbedBuilder()
     .setColor(0x4fc3f7)
-    .setTitle('Times disponíveis esta semana')
+    .setTitle(`Times disponíveis: ${weekLabel(weeksAhead)}`)
     .setFooter({ text: formatWeekRange(weekStart) });
+
+  if (teamEntries.length === 0) {
+    embed.setDescription('Nenhum time tem horários futuros nesta semana.');
+    return { embed, buttonRows: [] };
+  }
 
   for (const [, team] of teamEntries) {
     const lines = [];
@@ -239,7 +214,7 @@ async function updateDisponibilidadeChannel(guild, weekStart) {
     const row = new ActionRowBuilder().addComponents(
       teamEntries.slice(i, i + 5).map(([id, t]) =>
         new ButtonBuilder()
-          .setCustomId(`proposta:propor:${id}`)
+          .setCustomId(`proposta:propor:${id}:${weeksAhead}`)
           .setLabel(`Propor para ${t.name}`)
           .setStyle(ButtonStyle.Primary)
       )
@@ -247,11 +222,54 @@ async function updateDisponibilidadeChannel(guild, weekStart) {
     buttonRows.push(row);
   }
 
-  await dispChannel.send({ embeds: [embed], components: buttonRows });
+  return { embed, buttonRows };
 }
 
-async function startFlow(interaction, team, isEdit) {
-  const weekStart = getWeekStart();
+async function updateAllDisponibilidadeChannel(guild) {
+  const dispChannel = guild.channels.cache.find(c => c.name.startsWith('disponibilidade'));
+  if (!dispChannel) return;
+
+  // Apaga mensagens anteriores do bot
+  const msgs = await dispChannel.messages.fetch({ limit: 30 }).catch(() => null);
+  if (msgs) {
+    for (const msg of msgs.filter(m => m.author.bot).values()) {
+      await msg.delete().catch(() => {});
+    }
+  }
+
+  // Posta uma mensagem por semana
+  for (let offset = 0; offset < 3; offset++) {
+    const ws = getWeekStartOffset(offset);
+    const { embed, buttonRows } = await buildDisponibilidadeWeekEmbed(guild, ws, offset);
+    await dispChannel.send({ embeds: [embed], components: buttonRows });
+  }
+}
+
+async function startFlow(interaction, team, isEdit, weekStart = null, weeksAhead = null) {
+  // Se weekStart não foi fornecido, pede seleção de semana primeiro
+  if (!weekStart) {
+    sessions.set(interaction.user.id, {
+      teamId: team.id,
+      teamName: team.name,
+      team,
+      step: 'week',
+    });
+    setTimeout(() => sessions.delete(interaction.user.id), 10 * 60 * 1000);
+
+    const embed = new EmbedBuilder()
+      .setColor(0x4fc3f7)
+      .setTitle('Selecione a semana')
+      .setDescription('Escolha qual semana você quer cadastrar ou editar.')
+      .setFooter({ text: 'Você pode cadastrar até 3 semanas adiantadas.' });
+
+    return interaction.reply({
+      embeds: [embed],
+      components: buildWeekRows(),
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  // Já tem weekStart: vai direto pra seleção de dias
   const existing = await loadExistingAvailability(team.id, weekStart);
 
   sessions.set(interaction.user.id, {
@@ -259,6 +277,7 @@ async function startFlow(interaction, team, isEdit) {
     teamName: team.name,
     team,
     weekStart,
+    weeksAhead,
     selectedDays: existing.selectedDays,
     dayHours: existing.dayHours,
     lockedHours: existing.lockedHours,
@@ -273,23 +292,25 @@ async function startFlow(interaction, team, isEdit) {
   const embed = new EmbedBuilder()
     .setColor(0x4fc3f7)
     .setTitle(`Passo 1 de 2: Selecione os dias disponíveis${isEdit ? ' (editando)' : ''}`)
-    .setDescription(`Semana ${formatWeekRange(weekStart)}${selected ? `\nSelecionados: ${selected}` : ''}`)
+    .setDescription(`${weekLabel(weeksAhead)} (${formatWeekRange(weekStart)})${selected ? `\nSelecionados: ${selected}` : ''}`)
     .setFooter({ text: 'Clique nos dias para selecionar. Clique novamente para desmarcar.' });
 
-  await interaction.reply({
-    embeds: [embed],
-    components: buildDayRows(existing.selectedDays, existing.selectedDays.length > 0, weekStart, existing.lockedHours),
-    flags: MessageFlags.Ephemeral,
-  });
+  const components = buildDayRows(existing.selectedDays, existing.selectedDays.length > 0, weekStart, existing.lockedHours);
+
+  if (interaction.replied || interaction.deferred) {
+    return interaction.editReply({ embeds: [embed], components });
+  }
+  return interaction.reply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('disponibilidade')
-    .setDescription('Cadastra os horários disponíveis do time para a semana'),
+    .setDescription('Cadastra os horários disponíveis do time para as próximas 3 semanas'),
 
-  updateDisponibilidadeChannel,
-  postAvailabilityToAgenda,
+  postAllAvailabilityToAgenda,
+  updateAllDisponibilidadeChannel,
+  loadExistingAvailability,
 
   async execute(interaction) {
     const captainRole = interaction.guild.roles.cache.find(r => r.name === 'Capitão');
@@ -316,6 +337,7 @@ module.exports = {
 
     if (action === 'editar') {
       const teamId = parseInt(parts[2]);
+      const weeksAhead = parseInt(parts[3] || '0');
       const teamResult = await db.query('SELECT * FROM teams WHERE id = $1', [teamId]);
       if (teamResult.rows.length === 0) {
         return interaction.reply({ content: 'Time não encontrado.', flags: MessageFlags.Ephemeral });
@@ -324,12 +346,40 @@ module.exports = {
       if (team.captain_discord_id !== interaction.user.id) {
         return interaction.reply({ content: 'Apenas o capitão pode editar a disponibilidade deste time.', flags: MessageFlags.Ephemeral });
       }
-      return startFlow(interaction, team, true);
+      const weekStart = getWeekStartOffset(weeksAhead);
+      return startFlow(interaction, team, true, weekStart, weeksAhead);
     }
 
     const session = sessions.get(interaction.user.id);
     if (!session) {
       return interaction.reply({ content: 'Sessão expirada. Use /disponibilidade novamente.', flags: MessageFlags.Ephemeral });
+    }
+
+    if (action === 'week') {
+      const weeksAhead = parseInt(parts[2]);
+      const weekStart = getWeekStartOffset(weeksAhead);
+      const existing = await loadExistingAvailability(session.teamId, weekStart);
+
+      session.weekStart = weekStart;
+      session.weeksAhead = weeksAhead;
+      session.selectedDays = existing.selectedDays;
+      session.dayHours = existing.dayHours;
+      session.lockedHours = existing.lockedHours;
+      session.currentDayIndex = 0;
+      session.step = 'days';
+      session.hasExisting = existing.selectedDays.length > 0;
+
+      const selected = existing.selectedDays.map(d => DAYS.find(x => x.value === d).label).join(', ');
+      const embed = new EmbedBuilder()
+        .setColor(0x4fc3f7)
+        .setTitle('Passo 1 de 2: Selecione os dias disponíveis')
+        .setDescription(`${weekLabel(weeksAhead)} (${formatWeekRange(weekStart)})${selected ? `\nSelecionados: ${selected}` : ''}`)
+        .setFooter({ text: 'Clique nos dias para selecionar. Clique novamente para desmarcar.' });
+
+      return interaction.update({
+        embeds: [embed],
+        components: buildDayRows(existing.selectedDays, existing.selectedDays.length > 0, weekStart, existing.lockedHours),
+      });
     }
 
     if (action === 'day') {
@@ -345,10 +395,13 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor(0x4fc3f7)
         .setTitle('Passo 1 de 2: Selecione os dias disponíveis')
-        .setDescription(`Semana ${formatWeekRange(session.weekStart)}${selected ? `\nSelecionados: ${selected}` : ''}`)
+        .setDescription(`${weekLabel(session.weeksAhead)} (${formatWeekRange(session.weekStart)})${selected ? `\nSelecionados: ${selected}` : ''}`)
         .setFooter({ text: 'Clique nos dias para selecionar. Clique novamente para desmarcar.' });
 
-      return interaction.update({ embeds: [embed], components: buildDayRows(session.selectedDays, session.hasExisting, session.weekStart, session.lockedHours) });
+      return interaction.update({
+        embeds: [embed],
+        components: buildDayRows(session.selectedDays, session.hasExisting, session.weekStart, session.lockedHours),
+      });
     }
 
     if (action === 'clear') {
@@ -358,14 +411,14 @@ module.exports = {
       const clearedEmbed = new EmbedBuilder()
         .setColor(0xe05a5a)
         .setTitle(`Disponibilidade removida: ${session.teamName}`)
-        .setDescription('Todos os dias e horários foram removidos.')
+        .setDescription(`Todos os dias e horários da ${weekLabel(session.weeksAhead).toLowerCase()} foram removidos.`)
         .setFooter({ text: `Semana ${formatWeekRange(weekStart)}` });
 
       await interaction.update({ embeds: [clearedEmbed], components: [] });
 
       Promise.all([
-        postAvailabilityToAgenda(interaction.guild, session.team, weekStart),
-        updateDisponibilidadeChannel(interaction.guild, weekStart),
+        postAllAvailabilityToAgenda(interaction.guild, session.team),
+        updateAllDisponibilidadeChannel(interaction.guild),
       ]).catch(err => console.error('Erro ao atualizar canais:', err));
 
       sessions.delete(interaction.user.id);
@@ -418,7 +471,6 @@ module.exports = {
       if (isLast) {
         const weekStart = session.weekStart;
 
-        // Apaga só os não-bloqueados (preserva horários com scrim confirmada)
         await db.query('DELETE FROM availabilities WHERE team_id = $1 AND week_start = $2 AND is_blocked = false', [session.teamId, weekStart]);
 
         const values = [];
@@ -428,7 +480,7 @@ module.exports = {
           const hours = session.dayHours[day] || [];
           const lockedForDay = session.lockedHours?.[day] || [];
           for (const hour of hours) {
-            if (lockedForDay.includes(hour)) continue; // já no banco
+            if (lockedForDay.includes(hour)) continue;
             values.push(`($${paramIdx++}, $${paramIdx++}, $${paramIdx++}, $${paramIdx++})`);
             params.push(session.teamId, weekStart, day, hour);
           }
@@ -447,15 +499,14 @@ module.exports = {
         const confirmEmbed = new EmbedBuilder()
           .setColor(0x4caf82)
           .setTitle(`Disponibilidade salva: ${session.teamName}`)
-          .setDescription(lines.length > 0 ? lines.join('\n') : 'Nenhum horário cadastrado.')
-          .setFooter({ text: `Semana ${formatWeekRange(weekStart)}` });
+          .setDescription(`${weekLabel(session.weeksAhead)} (${formatWeekRange(weekStart)})\n\n${lines.length > 0 ? lines.join('\n') : 'Nenhum horário cadastrado.'}`)
+          .setFooter({ text: 'Use /disponibilidade novamente para cadastrar outra semana.' });
 
         await interaction.update({ embeds: [confirmEmbed], components: [] });
 
-        // Atualizações em background, não bloqueiam a resposta
         Promise.all([
-          postAvailabilityToAgenda(interaction.guild, session.team, weekStart),
-          updateDisponibilidadeChannel(interaction.guild, weekStart),
+          postAllAvailabilityToAgenda(interaction.guild, session.team),
+          updateAllDisponibilidadeChannel(interaction.guild),
         ]).catch(err => console.error('Erro ao atualizar canais:', err));
 
         sessions.delete(interaction.user.id);

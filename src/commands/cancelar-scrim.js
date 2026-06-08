@@ -140,7 +140,9 @@ module.exports = {
     Promise.all([
       updateAgendaChannel(interaction.guild, homeTeam, scrim.week_start),
       updateAgendaChannel(interaction.guild, awayTeam, scrim.week_start),
-      disponibilidade.updateDisponibilidadeChannel(interaction.guild, scrim.week_start),
+      disponibilidade.updateAllDisponibilidadeChannel(interaction.guild),
+      disponibilidade.postAllAvailabilityToAgenda(interaction.guild, homeTeam),
+      disponibilidade.postAllAvailabilityToAgenda(interaction.guild, awayTeam),
       notifyCancellation(interaction.guild, homeTeam, awayTeam, scrim, interaction.user.username),
     ]).catch(err => console.error('Erro nas atualizações pós-cancelamento:', err));
   },

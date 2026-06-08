@@ -11,6 +11,22 @@ function getWeekStart(date = new Date()) {
   return monday;
 }
 
+function getWeekStartOffset(weeksAhead = 0, from = new Date()) {
+  const start = getWeekStart(from);
+  start.setDate(start.getDate() + weeksAhead * 7);
+  return start;
+}
+
+function getActiveWeekStarts() {
+  return [0, 1, 2].map(n => getWeekStartOffset(n));
+}
+
+function weekLabel(weeksAhead) {
+  if (weeksAhead === 0) return 'Semana atual';
+  if (weeksAhead === 1) return 'Próxima semana';
+  return `Daqui a ${weeksAhead} semanas`;
+}
+
 function formatWeekRange(weekStart) {
   const end = new Date(weekStart);
   end.setDate(end.getDate() + 6);
@@ -57,6 +73,9 @@ module.exports = {
   DAY_NAME,
   SHORT_DAY,
   getWeekStart,
+  getWeekStartOffset,
+  getActiveWeekStarts,
+  weekLabel,
   formatWeekRange,
   formatDate,
   getScheduledAt,

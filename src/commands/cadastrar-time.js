@@ -185,10 +185,23 @@ module.exports = {
       await comandosChannel.send({ embeds: [guideEmbed, channelsEmbed, regrasEmbed] });
     }
 
+    const teamRecord = {
+      id: teamId,
+      name: teamName,
+      channel_lineup_id: channelIds['lineup'],
+      channel_agenda_id: channelIds['agenda'],
+      channel_chat_id: channelIds['chat-do-time'],
+      channel_propostas_id: channelIds['propostas'],
+      captain_discord_id: interaction.user.id,
+    };
+
     // Lineup no #lineup (usa o helper para incluir o botão "Editar lineup")
     const lineup = require('./lineup');
-    const teamRecord = { id: teamId, name: teamName, channel_lineup_id: channelIds['lineup'] };
     await lineup.updateLineupPost(guild, teamRecord);
+
+    // Cria os 3 posts de disponibilidade no #agenda do time (vazios, prontos pra edição)
+    const disponibilidade = require('./disponibilidade');
+    await disponibilidade.postAllAvailabilityToAgenda(guild, teamRecord);
 
     await interaction.editReply({ content: `Time **${teamName}** cadastrado! Verifique o canal <#${channelIds['chat-do-time']}>.` });
 

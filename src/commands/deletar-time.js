@@ -97,12 +97,7 @@ module.exports = {
         components: [],
       });
 
-      // Atualiza #disponibilidade da semana atual
-      const weekStart = new Date();
-      const day = weekStart.getDay();
-      weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1));
-      weekStart.setHours(0, 0, 0, 0);
-      disponibilidade.updateDisponibilidadeChannel(guild, weekStart).catch(() => {});
+      disponibilidade.updateAllDisponibilidadeChannel(guild).catch(() => {});
       updateTimesChannel(guild).catch(err => console.error('Erro ao atualizar #times:', err));
     }
   },

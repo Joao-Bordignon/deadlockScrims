@@ -12,8 +12,8 @@ async function refreshWeek(client) {
   const teams = await db.query('SELECT * FROM teams WHERE suspended_until IS NULL OR suspended_until < NOW()');
 
   for (const team of teams.rows) {
-    // Atualiza o post de disponibilidade no #agenda
-    await disponibilidade.postAvailabilityToAgenda(guild, team, newWeekStart)
+    // Atualiza os 3 posts de disponibilidade no #agenda do time
+    await disponibilidade.postAllAvailabilityToAgenda(guild, team)
       .catch(err => console.error(`Erro post #agenda ${team.name}:`, err));
 
     // Lembrete no #chat-do-time
@@ -23,14 +23,14 @@ async function refreshWeek(client) {
       const embed = new EmbedBuilder()
         .setColor(0x4fc3f7)
         .setTitle('Nova semana')
-        .setDescription(`Semana ${formatWeekRange(newWeekStart)}\n\nCapitão, cadastre a disponibilidade do time pra essa semana.`)
+        .setDescription(`Semana ${formatWeekRange(newWeekStart)}\n\nCapitão, lembre de cadastrar a disponibilidade do time. Pode cadastrar até 3 semanas adiantadas.`)
         .setFooter({ text: 'Use /disponibilidade no #agenda' });
       await chatChannel.send({ content: captainMention, embeds: [embed] }).catch(() => {});
     }
   }
 
-  // Atualiza #disponibilidade público
-  await disponibilidade.updateDisponibilidadeChannel(guild, newWeekStart)
+  // Atualiza #disponibilidade público (3 semanas)
+  await disponibilidade.updateAllDisponibilidadeChannel(guild)
     .catch(err => console.error('Erro #disponibilidade:', err));
 
   // Atualiza #times

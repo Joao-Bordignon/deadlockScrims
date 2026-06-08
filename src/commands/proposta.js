@@ -4,7 +4,8 @@ const disponibilidade = require('./disponibilidade');
 const { updateAgendaChannel } = require('../utils/agenda');
 const {
   HOUR_LABEL, HOUR_TIME, DAY_NAME, SHORT_DAY,
-  getWeekStart, formatDate, getScheduledAt, sortDays, sortHours,
+  getWeekStart, getWeekStartOffset, weekLabel,
+  formatDate, getScheduledAt, sortDays, sortHours,
   isHourInPast,
 } = require('../utils/time');
 
@@ -28,7 +29,7 @@ async function getCaptainTeam(userId) {
   return r.rows[0] || null;
 }
 
-async function startProposal(interaction, opponentTeamId) {
+async function startProposal(interaction, opponentTeamId, weeksAhead = 0) {
   const captainTeam = await getCaptainTeam(interaction.user.id);
   if (!captainTeam) {
     return interaction.reply({ content: 'Apenas capitães podem propor scrims.', flags: MessageFlags.Ephemeral });
@@ -48,7 +49,7 @@ async function startProposal(interaction, opponentTeamId) {
     return interaction.reply({ content: 'Esse time está suspenso e não pode receber propostas.', flags: MessageFlags.Ephemeral });
   }
 
-  const weekStart = getWeekStart();
+  const weekStart = getWeekStartOffset(weeksAhead);
   const avail = await db.query(
     `SELECT day_of_week, hour FROM availabilities
      WHERE team_id = $1 AND week_start = $2 AND is_blocked = false
@@ -57,7 +58,7 @@ async function startProposal(interaction, opponentTeamId) {
   );
 
   if (avail.rows.length === 0) {
-    return interaction.reply({ content: `${opponent.name} não tem horários disponíveis essa semana.`, flags: MessageFlags.Ephemeral });
+    return interaction.reply({ content: `${opponent.name} não tem horários disponíveis na ${weekLabel(weeksAhead).toLowerCase()}.`, flags: MessageFlags.Ephemeral });
   }
 
   const now = new Date();
@@ -72,13 +73,14 @@ async function startProposal(interaction, opponentTeamId) {
   }
 
   if (Object.keys(slotsByDay).length === 0) {
-    return interaction.reply({ content: `${opponent.name} não tem horários futuros disponíveis no que resta dessa semana.`, flags: MessageFlags.Ephemeral });
+    return interaction.reply({ content: `${opponent.name} não tem horários futuros disponíveis no que resta da ${weekLabel(weeksAhead).toLowerCase()}.`, flags: MessageFlags.Ephemeral });
   }
 
   sessions.set(interaction.user.id, {
     proposerTeam: captainTeam,
     opponentTeam: opponent,
     weekStart,
+    weeksAhead,
     slotsByDay,
     selectedDay: null,
   });
@@ -102,7 +104,7 @@ async function startProposal(interaction, opponentTeamId) {
   const embed = new EmbedBuilder()
     .setColor(0x7c6af7)
     .setTitle(`Propor Scrim: ${opponent.name}`)
-    .setDescription('Selecione o dia de preferência.');
+    .setDescription(`${weekLabel(weeksAhead)}. Selecione o dia de preferência.`);
 
   await interaction.reply({ embeds: [embed], components: rows, flags: MessageFlags.Ephemeral });
 }
@@ -265,7 +267,9 @@ async function handleResposta(interaction, scrimId, aceitar) {
     Promise.all([
       updateAgendaChannel(interaction.guild, proposerTeam, scrim.week_start),
       updateAgendaChannel(interaction.guild, opponentTeam, scrim.week_start),
-      disponibilidade.updateDisponibilidadeChannel(interaction.guild, scrim.week_start),
+      disponibilidade.updateAllDisponibilidadeChannel(interaction.guild),
+      disponibilidade.postAllAvailabilityToAgenda(interaction.guild, proposerTeam),
+      disponibilidade.postAllAvailabilityToAgenda(interaction.guild, opponentTeam),
       notifyProposer(interaction.guild, proposerTeam, opponentTeam, scrim, 'aceita'),
     ]).catch(err => console.error('Erro ao atualizar canais após aceite:', err));
   } else {
@@ -312,7 +316,7 @@ module.exports = {
     const parts = interaction.customId.split(':');
     const action = parts[1];
 
-    if (action === 'propor') return startProposal(interaction, parseInt(parts[2]));
+    if (action === 'propor') return startProposal(interaction, parseInt(parts[2]), parseInt(parts[3] || '0'));
     if (action === 'day') return handleDay(interaction, parseInt(parts[2]));
     if (action === 'hour') return handleHour(interaction, parseInt(parts[2]));
     if (action === 'aceitar') return handleResposta(interaction, parseInt(parts[2]), true);
