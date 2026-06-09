@@ -4,6 +4,7 @@ const db = require('../database');
 const disponibilidade = require('../commands/disponibilidade');
 const { getWeekStart, formatWeekRange } = require('../utils/time');
 const { updateTimesChannel } = require('../utils/times');
+const { captainMention } = require('../utils/captain');
 
 async function refreshWeek(client) {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
@@ -19,13 +20,12 @@ async function refreshWeek(client) {
     // Lembrete no #chat-do-time
     const chatChannel = guild.channels.cache.get(team.channel_chat_id);
     if (chatChannel) {
-      const captainMention = `<@${team.captain_discord_id}>`;
       const embed = new EmbedBuilder()
         .setColor(0x4fc3f7)
         .setTitle('Nova semana')
         .setDescription(`Semana ${formatWeekRange(newWeekStart)}\n\nCapitão, lembre de cadastrar a disponibilidade do time. Pode cadastrar até 3 semanas adiantadas.`)
         .setFooter({ text: 'Use /disponibilidade no #agenda' });
-      await chatChannel.send({ content: captainMention, embeds: [embed] }).catch(() => {});
+      await chatChannel.send({ content: captainMention(guild), embeds: [embed] }).catch(() => {});
     }
   }
 

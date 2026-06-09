@@ -3,6 +3,7 @@ const db = require('../database');
 const disponibilidade = require('./disponibilidade');
 const { updateAgendaChannel } = require('../utils/agenda');
 const { HOUR_TIME, DAY_NAME, formatDate } = require('../utils/time');
+const { getCaptainTeam, captainMention } = require('../utils/captain');
 
 const HOUR_MS = 60 * 60 * 1000;
 const TIER_72H = 72 * HOUR_MS;
@@ -43,11 +44,10 @@ module.exports = {
     .setDescription('Cancela uma scrim confirmada (prazo varia conforme antecedência)'),
 
   async execute(interaction) {
-    const teamResult = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [interaction.user.id]);
-    if (teamResult.rows.length === 0) {
+    const team = await getCaptainTeam(interaction.member);
+    if (!team) {
       return interaction.reply({ content: 'Apenas capitães podem cancelar scrims.', flags: MessageFlags.Ephemeral });
     }
-    const team = teamResult.rows[0];
 
     const scrims = await db.query(
       `SELECT s.id, s.scheduled_at, s.confirmed_at, s.created_at, s.day_of_week, s.hour,
@@ -115,7 +115,8 @@ module.exports = {
     const homeTeam = teams.rows.find(t => t.id === scrim.team_home_id);
     const awayTeam = teams.rows.find(t => t.id === scrim.team_away_id);
 
-    if (homeTeam.captain_discord_id !== interaction.user.id && awayTeam.captain_discord_id !== interaction.user.id) {
+    const userTeam = await getCaptainTeam(interaction.member);
+    if (!userTeam || (userTeam.id !== homeTeam.id && userTeam.id !== awayTeam.id)) {
       return interaction.update({ content: 'Apenas capitães dos times envolvidos podem cancelar.', components: [] });
     }
 
@@ -161,6 +162,6 @@ async function notifyCancellation(guild, homeTeam, awayTeam, scrim, cancelledBy)
         { name: 'Cancelada por', value: cancelledBy, inline: true },
         { name: 'Data e hora', value: `${DAY_NAME[scrim.day_of_week]} ${formatDate(new Date(scrim.scheduled_at))} · ${HOUR_TIME(scrim.hour)}` },
       );
-    await propostas.send({ content: `<@${team.captain_discord_id}>`, embeds: [embed] }).catch(() => {});
+    await propostas.send({ content: captainMention(guild), embeds: [embed] }).catch(() => {});
   }
 }

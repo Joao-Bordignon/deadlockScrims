@@ -5,6 +5,7 @@ const {
   getWeekStartOffset, getActiveWeekStarts, weekLabel,
   formatWeekRange,
 } = require('../utils/time');
+const { getCaptainTeam } = require('../utils/captain');
 
 const sessions = new Map();
 
@@ -313,17 +314,10 @@ module.exports = {
   loadExistingAvailability,
 
   async execute(interaction) {
-    const captainRole = interaction.guild.roles.cache.find(r => r.name === 'Capitão');
-    if (!captainRole || !interaction.member.roles.cache.has(captainRole.id)) {
-      return interaction.reply({ content: 'Apenas o capitão pode cadastrar a disponibilidade.', flags: MessageFlags.Ephemeral });
+    const team = await getCaptainTeam(interaction.member);
+    if (!team) {
+      return interaction.reply({ content: 'Apenas capitães podem cadastrar a disponibilidade. Se você é capitão, verifique se tem o cargo do time e o cargo `Capitão`.', flags: MessageFlags.Ephemeral });
     }
-
-    const teamResult = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [interaction.user.id]);
-    if (teamResult.rows.length === 0) {
-      return interaction.reply({ content: 'Você não tem um time cadastrado. Use /cadastrar-time primeiro.', flags: MessageFlags.Ephemeral });
-    }
-
-    const team = teamResult.rows[0];
     if (team.suspended_until && new Date(team.suspended_until) > new Date()) {
       return interaction.reply({ content: `Seu time está suspenso. Motivo: ${team.suspension_reason || 'não informado'}.`, flags: MessageFlags.Ephemeral });
     }
@@ -343,8 +337,9 @@ module.exports = {
         return interaction.reply({ content: 'Time não encontrado.', flags: MessageFlags.Ephemeral });
       }
       const team = teamResult.rows[0];
-      if (team.captain_discord_id !== interaction.user.id) {
-        return interaction.reply({ content: 'Apenas o capitão pode editar a disponibilidade deste time.', flags: MessageFlags.Ephemeral });
+      const userTeam = await getCaptainTeam(interaction.member);
+      if (!userTeam || userTeam.id !== team.id) {
+        return interaction.reply({ content: 'Apenas capitães deste time podem editar a disponibilidade.', flags: MessageFlags.Ephemeral });
       }
       const weekStart = getWeekStartOffset(weeksAhead);
       return startFlow(interaction, team, true, weekStart, weeksAhead);

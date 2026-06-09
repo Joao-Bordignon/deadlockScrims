@@ -8,6 +8,7 @@ const {
   formatDate, getScheduledAt, sortDays, sortHours,
   isHourInPast,
 } = require('../utils/time');
+const { getCaptainTeam, captainMention } = require('../utils/captain');
 
 const sessions = new Map();
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -24,13 +25,8 @@ async function getTeam(id) {
   return r.rows[0] || null;
 }
 
-async function getCaptainTeam(userId) {
-  const r = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [userId]);
-  return r.rows[0] || null;
-}
-
 async function startProposal(interaction, opponentTeamId, weeksAhead = 0) {
-  const captainTeam = await getCaptainTeam(interaction.user.id);
+  const captainTeam = await getCaptainTeam(interaction.member);
   if (!captainTeam) {
     return interaction.reply({ content: 'Apenas capitães podem propor scrims.', flags: MessageFlags.Ephemeral });
   }
@@ -196,9 +192,8 @@ async function handleHour(interaction, hour) {
       new ButtonBuilder().setCustomId(`proposta:recusar:${scrimId}`).setLabel('Recusar').setStyle(ButtonStyle.Danger),
     );
 
-    const captainMention = `<@${session.opponentTeam.captain_discord_id}>`;
     proposalMessage = await propostasChannel.send({
-      content: `${captainMention} você recebeu uma proposta de scrim!`,
+      content: `${captainMention(interaction.guild)} você recebeu uma proposta de scrim!`,
       embeds: [proposalEmbed],
       components: [buttonRow],
     });
@@ -239,8 +234,9 @@ async function handleResposta(interaction, scrimId, aceitar) {
   const proposerTeam = teams.rows.find(t => t.id === scrim.team_home_id);
   const opponentTeam = teams.rows.find(t => t.id === scrim.team_away_id);
 
-  if (opponentTeam.captain_discord_id !== interaction.user.id) {
-    return interaction.reply({ content: 'Apenas o capitão do time pode responder a essa proposta.', flags: MessageFlags.Ephemeral });
+  const userTeam = await getCaptainTeam(interaction.member);
+  if (!userTeam || userTeam.id !== opponentTeam.id) {
+    return interaction.reply({ content: 'Apenas capitães do time receptor podem responder a essa proposta.', flags: MessageFlags.Ephemeral });
   }
 
   if (aceitar) {

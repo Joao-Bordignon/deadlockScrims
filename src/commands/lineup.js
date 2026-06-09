@@ -5,6 +5,7 @@ const {
 } = require('discord.js');
 const db = require('../database');
 const { updateTimesChannel } = require('../utils/times');
+const { getCaptainTeam } = require('../utils/captain');
 
 const MAX_NON_CAPTAIN_SLOTS = 5;
 
@@ -62,10 +63,10 @@ module.exports = {
 
     if (subcommand === 'atualizar') {
       // Capitão atualiza o próprio time direto
-      const captainTeam = await db.query('SELECT * FROM teams WHERE captain_discord_id = $1', [interaction.user.id]);
-      if (captainTeam.rows.length > 0) {
+      const captainTeam = await getCaptainTeam(interaction.member);
+      if (captainTeam) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-        await updateLineupPost(interaction.guild, captainTeam.rows[0]);
+        await updateLineupPost(interaction.guild, captainTeam);
         return interaction.editReply({ content: 'Lineup atualizada.' });
       }
 
@@ -114,8 +115,9 @@ module.exports = {
     }
     const team = teamRes.rows[0];
 
-    if (team.captain_discord_id !== interaction.user.id) {
-      return interaction.reply({ content: 'Apenas o capitão pode editar a lineup deste time.', flags: MessageFlags.Ephemeral });
+    const userTeam = await getCaptainTeam(interaction.member);
+    if (!userTeam || userTeam.id !== team.id) {
+      return interaction.reply({ content: 'Apenas capitães deste time podem editar a lineup.', flags: MessageFlags.Ephemeral });
     }
 
     if (action === 'editar') {
