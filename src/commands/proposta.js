@@ -261,8 +261,8 @@ async function handleResposta(interaction, scrimId, aceitar) {
 
     // Atualizações em background
     Promise.all([
-      updateAgendaChannel(interaction.guild, proposerTeam, scrim.week_start),
-      updateAgendaChannel(interaction.guild, opponentTeam, scrim.week_start),
+      updateAgendaChannel(interaction.guild, proposerTeam),
+      updateAgendaChannel(interaction.guild, opponentTeam),
       disponibilidade.updateAllDisponibilidadeChannel(interaction.guild),
       disponibilidade.postAllAvailabilityToAgenda(interaction.guild, proposerTeam),
       disponibilidade.postAllAvailabilityToAgenda(interaction.guild, opponentTeam),

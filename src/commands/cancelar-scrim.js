@@ -139,8 +139,8 @@ module.exports = {
     await interaction.update({ content: '', embeds: [embed], components: [] });
 
     Promise.all([
-      updateAgendaChannel(interaction.guild, homeTeam, scrim.week_start),
-      updateAgendaChannel(interaction.guild, awayTeam, scrim.week_start),
+      updateAgendaChannel(interaction.guild, homeTeam),
+      updateAgendaChannel(interaction.guild, awayTeam),
       disponibilidade.updateAllDisponibilidadeChannel(interaction.guild),
       disponibilidade.postAllAvailabilityToAgenda(interaction.guild, homeTeam),
       disponibilidade.postAllAvailabilityToAgenda(interaction.guild, awayTeam),
