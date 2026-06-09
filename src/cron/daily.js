@@ -1,17 +1,9 @@
 const cron = require('node-cron');
-const db = require('../database');
 const disponibilidade = require('../commands/disponibilidade');
 const { updateTimesChannel } = require('../utils/times');
 
 async function refreshAll(client) {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
-
-  const teams = await db.query('SELECT * FROM teams WHERE suspended_until IS NULL OR suspended_until < NOW()');
-
-  for (const team of teams.rows) {
-    await disponibilidade.postAllAvailabilityToAgenda(guild, team)
-      .catch(err => console.error(`[daily] erro #agenda ${team.name}:`, err));
-  }
 
   await disponibilidade.updateAllDisponibilidadeChannel(guild)
     .catch(err => console.error('[daily] erro #disponibilidade:', err));
