@@ -1,15 +1,11 @@
 const cron = require('node-cron');
 const disponibilidade = require('../commands/disponibilidade');
-const { updateTimesChannel } = require('../utils/times');
 
 async function refreshAll(client) {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
 
   await disponibilidade.updateAllDisponibilidadeChannel(guild)
     .catch(err => console.error('[daily] erro #disponibilidade:', err));
-
-  await updateTimesChannel(guild)
-    .catch(err => console.error('[daily] erro #times:', err));
 }
 
 function startDailyCron(client) {
