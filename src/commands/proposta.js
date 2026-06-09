@@ -301,7 +301,7 @@ async function notifyProposer(guild, proposerTeam, opponentTeam, scrim, resultad
       { name: 'Data e hora', value: `${DAY_NAME[scrim.day_of_week]} ${formatDate(new Date(scrim.scheduled_at))} · ${HOUR_TIME(scrim.hour)}` },
     );
 
-  await propostasChannel.send({ embeds: [embed] }).catch(() => {});
+  await propostasChannel.send({ content: captainMention(guild), embeds: [embed] }).catch(() => {});
 }
 
 module.exports = {
