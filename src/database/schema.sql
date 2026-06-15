@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS availabilities (
   UNIQUE(team_id, week_start, day_of_week, hour)
 );
 
+-- Horários fixos (template semanal recorrente)
+CREATE TABLE IF NOT EXISTS recurring_availability (
+  team_id INTEGER NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  day_of_week INTEGER NOT NULL,
+  hour INTEGER NOT NULL,
+  PRIMARY KEY (team_id, day_of_week, hour)
+);
+
 -- Scrims
 CREATE TABLE IF NOT EXISTS scrims (
   id SERIAL PRIMARY KEY,

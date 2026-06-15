@@ -2,17 +2,23 @@ const cron = require('node-cron');
 const { EmbedBuilder } = require('discord.js');
 const db = require('../database');
 const disponibilidade = require('../commands/disponibilidade');
-const { getWeekStart, formatWeekRange } = require('../utils/time');
+const horarioFixo = require('../commands/horario-fixo');
+const { getWeekStart, getWeekStartOffset, formatWeekRange } = require('../utils/time');
 const { updateTimesChannel } = require('../utils/times');
 const { captainMention } = require('../utils/captain');
 
 async function refreshWeek(client) {
   const guild = await client.guilds.fetch(process.env.GUILD_ID);
   const newWeekStart = getWeekStart();
+  const newWeek3Start = getWeekStartOffset(2);
 
   const teams = await db.query('SELECT * FROM teams WHERE suspended_until IS NULL OR suspended_until < NOW()');
 
   for (const team of teams.rows) {
+    // Semeia a nova semana 3 com horários fixos do time, se houver
+    await horarioFixo.seedNewWeekFromRecurring(team.id, newWeek3Start)
+      .catch(err => console.error(`Erro seed semana 3 ${team.name}:`, err));
+
     // Atualiza os 3 posts de disponibilidade no #agenda do time
     await disponibilidade.postAllAvailabilityToAgenda(guild, team)
       .catch(err => console.error(`Erro post #agenda ${team.name}:`, err));
