@@ -136,15 +136,27 @@ module.exports = {
         .addFields(
           {
             name: '/disponibilidade',
-            value: 'Cadastra ou edita os dias e horários disponíveis do time para a semana. Use no <#' + channelIds['agenda'] + '>.',
+            value: 'Cadastra ou edita os dias e horários disponíveis do time. Permite cadastrar até 3 semanas (atual, próxima e seguinte). Use no <#' + channelIds['agenda'] + '>.',
+          },
+          {
+            name: '/horario-fixo',
+            value: 'Define o horário padrão do time que se repete em todas as semanas. Aplicado nas 3 semanas ativas e em qualquer semana nova que entrar. Use no <#' + channelIds['agenda'] + '>.',
           },
           {
             name: '/cancelar-scrim',
-            value: 'Cancela uma scrim confirmada. Mínimo de 2h de antecedência. Use no <#' + channelIds['agenda'] + '>.',
+            value: 'Cancela uma scrim confirmada. O prazo varia conforme a antecedência (de 30min a 48h antes). Use no <#' + channelIds['agenda'] + '>.',
+          },
+          {
+            name: '/adicionar-capitao',
+            value: 'Dá acesso aos comandos do bot para outro jogador do time. Útil quando o capitão quer dividir a operação com um co-capitão.',
+          },
+          {
+            name: '/remover-capitao',
+            value: 'Tira o acesso de capitão de outro jogador. O fundador do time não pode ser removido.',
           },
           {
             name: 'Botão "Editar disponibilidade"',
-            value: 'Aparece no <#' + channelIds['agenda'] + '> após o primeiro cadastro. Permite atualizar os horários a qualquer momento.',
+            value: 'Aparece no <#' + channelIds['agenda'] + '> em cada uma das 3 semanas. Permite atualizar os horários daquela semana específica.',
           },
           {
             name: 'Botão "Propor para [time]"',
@@ -159,7 +171,7 @@ module.exports = {
             value: 'Aparece no <#' + channelIds['lineup'] + '>. Abre um formulário com os 5 slots de jogadores (sem contar o capitão) para você adicionar, remover ou trocar.',
           },
         )
-        .setFooter({ text: 'Apenas o capitão pode usar os comandos do time' });
+        .setFooter({ text: 'Apenas capitães podem usar os comandos do time' });
 
       const channelsEmbed = new EmbedBuilder()
         .setColor(0x7c6af7)
@@ -177,9 +189,10 @@ module.exports = {
         .setTitle('Regras importantes')
         .setDescription(
           '**Comandos**\n' +
-          '• Apenas o capitão pode usar os comandos do time.\n' +
+          '• Apenas capitães podem usar os comandos do time. O fundador pode dar acesso a outros jogadores com `/adicionar-capitao`.\n' +
           '• A disponibilidade pode ser cadastrada para até 3 semanas (atual, próxima e seguinte).\n' +
-          '• Cada semana é independente. Toda segunda, rode `/disponibilidade` para cadastrar a nova semana que entrou.\n\n' +
+          '• Use `/horario-fixo` para definir um padrão semanal que se repete automaticamente em toda semana nova.\n' +
+          '• Cada semana é independente. Quem não usa horário fixo precisa rodar `/disponibilidade` toda segunda para cadastrar a nova semana que entrou.\n\n' +
           '**Propostas**\n' +
           '• Propostas de scrim expiram automaticamente 2h antes do horário marcado (ou 30min antes, se a proposta foi feita com pouca antecedência).\n' +
           '• Cada proposta envolve apenas os dois times. Não há interferência externa.\n\n' +
