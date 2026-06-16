@@ -39,8 +39,12 @@ async function updateLineupPost(guild, team) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`lineup:editar:${team.id}`)
-      .setLabel('Editar lineup')
-      .setStyle(ButtonStyle.Primary)
+      .setLabel('Editar jogadores')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(`lineup:editar-capitao:${team.id}`)
+      .setLabel('Editar capitão')
+      .setStyle(ButtonStyle.Secondary)
   );
 
   await channel.send({ embeds: [embed], components: [row] });
@@ -129,7 +133,7 @@ module.exports = {
 
       const modal = new ModalBuilder()
         .setCustomId(`lineup:submit:${team.id}`)
-        .setTitle(`Editar lineup: ${team.name}`);
+        .setTitle(`Editar jogadores: ${team.name}`);
 
       for (let i = 0; i < MAX_NON_CAPTAIN_SLOTS; i++) {
         const input = new TextInputBuilder()
@@ -141,6 +145,29 @@ module.exports = {
         if (currentNames[i]) input.setValue(currentNames[i]);
         modal.addComponents(new ActionRowBuilder().addComponents(input));
       }
+
+      return interaction.showModal(modal);
+    }
+
+    if (action === 'editar-capitao') {
+      const capRes = await db.query(
+        'SELECT discord_username FROM players WHERE team_id = $1 AND is_captain = true LIMIT 1',
+        [team.id]
+      );
+      const currentName = capRes.rows[0]?.discord_username || '';
+
+      const input = new TextInputBuilder()
+        .setCustomId('capitao')
+        .setLabel('Nome do capitão')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(50);
+      if (currentName) input.setValue(currentName);
+
+      const modal = new ModalBuilder()
+        .setCustomId(`lineup:submit-capitao:${team.id}`)
+        .setTitle(`Editar capitão: ${team.name}`)
+        .addComponents(new ActionRowBuilder().addComponents(input));
 
       return interaction.showModal(modal);
     }
@@ -166,6 +193,29 @@ module.exports = {
       await updateLineupPost(interaction.guild, team);
       updateTimesChannel(interaction.guild).catch(err => console.error('Erro ao atualizar #times:', err));
       return interaction.editReply({ content: `Lineup atualizada com ${newNames.length} jogador${newNames.length === 1 ? '' : 'es'} (sem contar o capitão).` });
+    }
+
+    if (action === 'submit-capitao') {
+      const newName = interaction.fields.getTextInputValue('capitao').trim();
+      if (!newName) {
+        return interaction.reply({ content: 'O nome do capitão não pode ficar vazio.', flags: MessageFlags.Ephemeral });
+      }
+
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      const existing = await db.query(
+        'SELECT id FROM players WHERE team_id = $1 AND is_captain = true LIMIT 1',
+        [team.id]
+      );
+      if (existing.rows.length > 0) {
+        await db.query('UPDATE players SET discord_username = $1 WHERE id = $2', [newName, existing.rows[0].id]);
+      } else {
+        await db.query('INSERT INTO players (team_id, discord_username, is_captain) VALUES ($1, $2, true)', [team.id, newName]);
+      }
+
+      await updateLineupPost(interaction.guild, team);
+      updateTimesChannel(interaction.guild).catch(err => console.error('Erro ao atualizar #times:', err));
+      return interaction.editReply({ content: `Capitão atualizado para **${newName}**.` });
     }
   },
 };
